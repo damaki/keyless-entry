@@ -1,6 +1,6 @@
 project Anchor is
 
-   for Source_Dirs use ("src", "../DW1000/src", "../DW1000/bsp-examples/dwm1001");
+   for Source_Dirs use ("../src/anchor", "../DW1000/src", "../DW1000/bsp-examples/dwm1001", "../src/protocol");
    for Object_Dir use "obj";
    for Main use ("anchor.adb");
    for Target use "arm-eabi";
