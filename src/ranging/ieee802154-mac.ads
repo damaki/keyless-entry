@@ -527,10 +527,9 @@ is
    --------------
 
    type Decode_Result is
-     (Success,
-      End_Of_Buffer,
-      Reserved_Field,
-      Invalid_Field);
+     (Success,         --  Decode was successful
+      End_Of_Buffer,   --  Error: End of buffer was reached during decode
+      Reserved_Field); --  Error: A reserved value was encountered.
 
    procedure Decode (Buffer : in     DW1000.Types.Byte_Array;
                      MHR    :    out MAC_Header;
@@ -544,11 +543,17 @@ is
         and
           (if Result = Success then
              (MHR.Frame_Version /= Reserved
+              and MHR.Destination_Address.Mode /= Reserved
+              and MHR.Source_Address.Mode /= Reserved
               and Is_Valid_Configuration
                 (Destination_Address_Mode   => MHR.Destination_Address.Mode,
                  Source_Address_Mode        => MHR.Source_Address.Mode,
                  Destination_PAN_ID_Present => MHR.Destination_PAN_ID.Present,
                  Source_PAN_ID_Present      => MHR.Source_PAN_ID.Present))));
+   --  Decode a MAC header from a byte array buffer.
+   --
+   --  If the decode was successful then the source/destination addresses
+   --  and PAN IDs are guaranteed to be a valid configuration.
 
    -------------------
    --  Conversions  --
@@ -558,7 +563,7 @@ is
    subtype Byte_Array_4 is DW1000.Types.Byte_Array (1 .. 4);
    subtype Byte_Array_8 is DW1000.Types.Byte_Array (1 .. 8);
 
-   --  These subprograms convert certain fields (records) to and from their
+   --  These subprograms convert certain field types to and from their
    --  byte array representation.
    --
    --  These are used for encoding and decoding operations.
@@ -580,60 +585,36 @@ is
       Target => Security_Control_Field);
 
    function Convert (PAN_ID : in PAN_ID_Field) return Byte_Array_2
-   is (Byte_Array_2'(Bits_8 (Unsigned_16 (PAN_ID) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_16 (PAN_ID), 8) and 16#FF#)))
-     with Global => null;
+     with Inline,
+     Global => null;
 
    function Convert (Bytes : in Byte_Array_2) return PAN_ID_Field
-   is (PAN_ID_Field (Bytes (1))
-       or PAN_ID_Field (Shift_Left (Unsigned_16 (Bytes (2)), 8)))
-     with Global => null;
+     with Inline,
+     Global => null;
 
    function Convert (Address : in Short_Address_Field) return Byte_Array_2
-   is (Byte_Array_2'(Bits_8 (Unsigned_16 (Address) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_16 (Address), 8) and 16#FF#)))
-     with Global => null;
+     with Inline,
+     Global => null;
 
    function Convert (Bytes : in Byte_Array_2) return Short_Address_Field
-   is (Short_Address_Field (Bytes (1))
-       or Short_Address_Field (Shift_Left (Unsigned_16 (Bytes (2)), 8)))
-     with Global => null;
+     with Inline,
+     Global => null;
 
    function Convert (FC : in Frame_Counter_Field) return Byte_Array_4
-   is (Byte_Array_4'(Bits_8 (Unsigned_32 (FC) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_32 (FC),  8) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_32 (FC), 16) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_32 (FC), 24) and 16#FF#)))
-     with Global => null;
+     with Inline,
+     Global => null;
 
    function Convert (Bytes : in Byte_Array_4) return Frame_Counter_Field
-   is (Frame_Counter_Field (Bytes (1))
-       or Frame_Counter_Field (Shift_Left (Unsigned_32 (Bytes (2)),  8))
-       or Frame_Counter_Field (Shift_Left (Unsigned_32 (Bytes (3)), 16))
-       or Frame_Counter_Field (Shift_Left (Unsigned_32 (Bytes (4)), 24)))
-     with Global => null;
+     with Inline,
+     Global => null;
 
    function Convert (Address : in Extended_Address_Field) return Byte_Array_8
-   is (Byte_Array_8'(Bits_8 (Unsigned_64 (Address) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_64 (Address),  8) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_64 (Address), 16) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_64 (Address), 24) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_64 (Address), 32) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_64 (Address), 40) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_64 (Address), 48) and 16#FF#),
-                     Bits_8 (Shift_Right (Unsigned_64 (Address), 56) and 16#FF#)))
-     with Global => null;
+     with Inline,
+     Global => null;
 
    function Convert (Bytes : in Byte_Array_8) return Extended_Address_Field
-   is (Extended_Address_Field (Bytes (1))
-       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (2)),  8))
-       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (3)), 16))
-       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (4)), 24))
-       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (5)), 32))
-       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (6)), 40))
-       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (7)), 48))
-       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (8)), 56)))
-     with Global => null;
+     with Inline,
+     Global => null;
 
 private
 
@@ -840,5 +821,57 @@ private
      (Destination_PAN_ID_Presence (Destination_Address_Mode,
                                    Source_Address_Mode,
                                    PAN_ID_Compression));
+
+   -------------------
+   --  Conversions  --
+   -------------------
+
+   function Convert (PAN_ID : in PAN_ID_Field) return Byte_Array_2
+   is (Byte_Array_2'(Bits_8 (Unsigned_16 (PAN_ID) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_16 (PAN_ID), 8) and 16#FF#)));
+
+   function Convert (Bytes : in Byte_Array_2) return PAN_ID_Field
+   is (PAN_ID_Field (Bytes (1))
+       or PAN_ID_Field (Shift_Left (Unsigned_16 (Bytes (2)), 8)));
+
+   function Convert (Address : in Short_Address_Field) return Byte_Array_2
+   is (Byte_Array_2'(Bits_8 (Unsigned_16 (Address) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_16 (Address), 8) and 16#FF#)));
+
+   function Convert (Bytes : in Byte_Array_2) return Short_Address_Field
+   is (Short_Address_Field (Bytes (1))
+       or Short_Address_Field (Shift_Left (Unsigned_16 (Bytes (2)), 8)));
+
+   function Convert (FC : in Frame_Counter_Field) return Byte_Array_4
+   is (Byte_Array_4'(Bits_8 (Unsigned_32 (FC) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_32 (FC),  8) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_32 (FC), 16) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_32 (FC), 24) and 16#FF#)));
+
+   function Convert (Bytes : in Byte_Array_4) return Frame_Counter_Field
+   is (Frame_Counter_Field (Bytes (1))
+       or Frame_Counter_Field (Shift_Left (Unsigned_32 (Bytes (2)),  8))
+       or Frame_Counter_Field (Shift_Left (Unsigned_32 (Bytes (3)), 16))
+       or Frame_Counter_Field (Shift_Left (Unsigned_32 (Bytes (4)), 24)));
+
+   function Convert (Address : in Extended_Address_Field) return Byte_Array_8
+   is (Byte_Array_8'(Bits_8 (Unsigned_64 (Address) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_64 (Address),  8) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_64 (Address), 16) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_64 (Address), 24) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_64 (Address), 32) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_64 (Address), 40) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_64 (Address), 48) and 16#FF#),
+                     Bits_8 (Shift_Right (Unsigned_64 (Address), 56) and 16#FF#)));
+
+   function Convert (Bytes : in Byte_Array_8) return Extended_Address_Field
+   is (Extended_Address_Field (Bytes (1))
+       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (2)),  8))
+       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (3)), 16))
+       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (4)), 24))
+       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (5)), 32))
+       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (6)), 40))
+       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (7)), 48))
+       or Extended_Address_Field (Shift_Left (Unsigned_64 (Bytes (8)), 56)));
 
 end IEEE802154.MAC;
