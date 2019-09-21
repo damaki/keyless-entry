@@ -370,7 +370,10 @@ is
                Key_Index : Key_Index_Field;
 
                case Mode is
-                  when 0 .. 2 =>
+                  when 0 | 1 =>
+                     null;
+
+                  when 2 =>
                      Key_Source_4 : Key_Source_Field (1 .. 4);
 
                   when 3 =>
@@ -422,13 +425,7 @@ is
          Source_PAN_ID       : Variant_PAN_ID;
          Source_Address      : Variant_Address;
          Aux_Security_Header : Variant_Aux_Security_Header;
-      end record
-     with Dynamic_Predicate =>
-       (Frame_Version /= Reserved
-        and Is_Valid_Configuration (Destination_Address.Mode,
-                                    Source_Address.Mode,
-                                    Destination_PAN_ID.Present,
-                                    Source_PAN_ID.Present));
+      end record;
 
    ------------------------------
    --  Is_Valid_Configuration  --
@@ -463,6 +460,26 @@ is
    --  Note that this function follows the rules for frame version 2#10#
    --  (i.e. IEEE_802_15_4) as specified in Table 7-2 of IEEE 802.15.4-2015
 
+   --------------------------------
+   --  Is_Source_PAN_ID_Present  --
+   --------------------------------
+
+   function Is_Source_PAN_ID_Present
+     (Destination_Address_Mode : in Address_Mode_Field;
+      Source_Address_Mode      : in Address_Mode_Field;
+      PAN_ID_Compression       : in PAN_ID_Compression_Field) return Boolean
+     with Global => null;
+
+   -------------------------------------
+   --  Is_Destination_PAN_ID_Present  --
+   -------------------------------------
+
+   function Is_Destination_PAN_ID_Present
+     (Destination_Address_Mode : in Address_Mode_Field;
+      Source_Address_Mode      : in Address_Mode_Field;
+      PAN_ID_Compression       : in PAN_ID_Compression_Field) return Boolean
+     with Global => null;
+
    --------------
    --  Encode  --
    --------------
@@ -473,9 +490,44 @@ is
      with Global => null,
      Depends => (Buffer =>+ MHR,
                  Length =>  MHR),
-     Pre => Buffer'Length >= Max_MHR_Length,
+     Pre => (Buffer'Length >= Max_MHR_Length
+             and MHR.Frame_Version /= Reserved
+             and Is_Valid_Configuration
+               (Destination_Address_Mode   => MHR.Destination_Address.Mode,
+                Source_Address_Mode        => MHR.Source_Address.Mode,
+                Destination_PAN_ID_Present => MHR.Destination_PAN_ID.Present,
+                Source_PAN_ID_Present      => MHR.Source_PAN_ID.Present)),
      Post => (Length <= Buffer'Length
               and (Length in Min_MHR_Length .. Max_MHR_Length));
+   --  Encode a MAC header into a byte array.
+
+   --------------
+   --  Decode  --
+   --------------
+
+   type Decode_Result is
+     (Success,
+      End_Of_Buffer,
+      Reserved_Field,
+      Invalid_Field);
+
+   procedure Decode (Buffer : in     DW1000.Types.Byte_Array;
+                     MHR    :    out MAC_Header;
+                     Length :    out Natural;
+                     Result :    out Decode_Result)
+     with Global => null,
+     Pre => Buffer'Length > 0,
+     Post =>
+       (Length <= Buffer'Length
+        and Length <= Max_MHR_Length
+        and
+          (if Result = Success then
+             (MHR.Frame_Version /= Reserved
+              and Is_Valid_Configuration
+                (Destination_Address_Mode   => MHR.Destination_Address.Mode,
+                 Source_Address_Mode        => MHR.Source_Address.Mode,
+                 Destination_PAN_ID_Present => MHR.Destination_PAN_ID.Present,
+                 Source_PAN_ID_Present      => MHR.Source_PAN_ID.Present))));
 
    -------------------
    --  Conversions  --
@@ -564,14 +616,14 @@ is
 
 private
 
-   ----------------------------------------
-   --  Address / PAN ID Validity Matrix  --
-   ----------------------------------------
+   -----------------------------------------
+   --  PAN ID Configuration Validity LUT  --
+   -----------------------------------------
 
-   Valid_Configurations : constant array (Address_Mode_Field,
-                                          Address_Mode_Field,
-                                          Boolean,
-                                          Boolean) of Boolean :=
+   Valid_PAN_ID_Configurations : constant array (Address_Mode_Field,
+                                                 Address_Mode_Field,
+                                                 Boolean,
+                                                 Boolean) of Boolean :=
    --              |                    |Destination| Source  |
    --  Destination |    Source          |  PAN ID   | PAN ID  |
    --    Address   |    Address         | Present?  |Present? | Valid?
@@ -608,13 +660,91 @@ private
                                                       True   => False),
                                            True   => (False  => True,    --  Row 7
                                                       True   => False))));
-   --  This is look-up table captures the set of valid configurations
+   --  This look-up table captures the set of valid configurations
    --  for all possible Source/Destination Address and PAN ID combinations.
    --
    --  Only the set of configurations listed in Table 7-2 of IEEE 802.15.4-2015
    --  are permitted (marked as True in the last column of this table).
-   --  All other combinations are not allowed. For valid configurations, the
-   --  corresponding row number in Table 7-2 is noted in a comment.
+   --  All other combinations are not allowed.
+   --
+   --  The entries in this table are annotated with the corresponding row
+   --  number from Table 7-2.
+
+   ----------------------------------
+   --  Source PAN ID Presence LUT  --
+   ----------------------------------
+
+   Source_PAN_ID_Presence : constant array (Address_Mode_Field,
+                                            Address_Mode_Field,
+                                            PAN_ID_Compression_Field) of Boolean :=
+   --              |               |                  |  Source
+   --  Destination |    Source     |     PAN ID       |  PAN ID
+   --    Address   |    Address    |   Compression    | Present?
+     (Not_Present => (Not_Present => (Not_Compressed => False,    --  Row 1
+                                      Compressed     => False),   --  Row 2
+                      Reserved    => (others         => False),
+                      Short       => (Not_Compressed => True,     --  Row 5
+                                      Compressed     => False),   --  Row 6
+                      Extended    => (Not_Compressed => True,     --  Row 5
+                                      Compressed     => False)),  --  Row 6
+      Reserved    => (others      => (others         => False)),
+      Short       => (Not_Present => (Not_Compressed => False,    --  Row 3
+                                      Compressed     => False),   --  Row 4
+                      Reserved    => (others         => False),
+                      Short       => (Not_Compressed => True,     --  Row 9
+                                      Compressed     => False),   --  Row 14
+                      Extended    => (Not_Compressed => True,     --  Row 10
+                                      Compressed     => False)),  --  Row 12
+      Extended    => (Not_Present => (Not_Compressed => False,    --  Row 3
+                                      Compressed     => False),   --  Row 4
+                      Reserved    => (others         => False),
+                      Short       => (Not_Compressed => True,     --  Row 11
+                                      Compressed     => False),   --  Row 13
+                      Extended    => (Not_Compressed => False,    --  Row 7
+                                      Compressed     => False))); --  Row 8
+   --  This look-up table determines when the source PAN ID field is present
+   --  in the encoded MAC header.
+   --
+   --  The circumstances when the source PAN ID is present is documented in
+   --  Table 7-2 of IEEE 802.15.4-2015.
+
+   ---------------------------------------
+   --  Destination PAN ID Presence LUT  --
+   ---------------------------------------
+
+   Destination_PAN_ID_Presence : constant array (Address_Mode_Field,
+                                                 Address_Mode_Field,
+                                                 PAN_ID_Compression_Field) of Boolean :=
+   --              |               |                  |  Dest.
+   --  Destination |    Source     |     PAN ID       |  PAN ID
+   --    Address   |    Address    |   Compression    | Present?
+     (Not_Present => (Not_Present => (Not_Compressed => False,    --  Row 1
+                                      Compressed     => True),    --  Row 2
+                      Reserved    => (others         => False),
+                      Short       => (Not_Compressed => False,    --  Row 5
+                                      Compressed     => False),   --  Row 6
+                      Extended    => (Not_Compressed => False,    --  Row 5
+                                      Compressed     => False)),  --  Row 6
+      Reserved    => (others      => (others         => False)),
+      Short       => (Not_Present => (Not_Compressed => True,     --  Row 3
+                                      Compressed     => False),   --  Row 4
+                      Reserved    => (others         => False),
+                      Short       => (Not_Compressed => True,     --  Row 9
+                                      Compressed     => True),    --  Row 14
+                      Extended    => (Not_Compressed => True,     --  Row 10
+                                      Compressed     => True)),   --  Row 12
+      Extended    => (Not_Present => (Not_Compressed => True,     --  Row 3
+                                      Compressed     => False),   --  Row 4
+                      Reserved    => (others         => False) ,
+                      Short       => (Not_Compressed => True,     --  Row 11
+                                      Compressed     => True),    --  Row 13
+                      Extended    => (Not_Compressed => True,     --  Row 7
+                                      Compressed     => False))); --  Row 8
+   --  This look-up table determines when the destination PAN ID field is
+   --  present in the encoded MAC header.
+   --
+   --  The circumstances when the destination PAN ID is present is documented
+   --  in Table 7-2 of IEEE 802.15.4-2015.
 
    ------------------------------
    --  Is_Valid_Configuration  --
@@ -625,10 +755,10 @@ private
       Source_Address_Mode        : in Address_Mode_Field;
       Destination_PAN_ID_Present : in Boolean;
       Source_PAN_ID_Present      : in Boolean) return Boolean is
-     (Valid_Configurations (Destination_Address_Mode,
-                            Source_Address_Mode,
-                            Destination_PAN_ID_Present,
-                            Source_PAN_ID_Present));
+     (Valid_PAN_ID_Configurations (Destination_Address_Mode,
+                                   Source_Address_Mode,
+                                   Destination_PAN_ID_Present,
+                                   Source_PAN_ID_Present));
 
    ------------------------------
    --  Get_PAN_ID_Compression  --
@@ -665,5 +795,29 @@ private
 
          else Compressed)
      );
+
+   --------------------------------
+   --  Is_Source_PAN_ID_Present  --
+   --------------------------------
+
+   function Is_Source_PAN_ID_Present
+     (Destination_Address_Mode : in Address_Mode_Field;
+      Source_Address_Mode      : in Address_Mode_Field;
+      PAN_ID_Compression       : in PAN_ID_Compression_Field) return Boolean is
+     (Source_PAN_ID_Presence (Destination_Address_Mode,
+                              Source_Address_Mode,
+                              PAN_ID_Compression));
+
+   -------------------------------------
+   --  Is_Destination_PAN_ID_Present  --
+   -------------------------------------
+
+   function Is_Destination_PAN_ID_Present
+     (Destination_Address_Mode : in Address_Mode_Field;
+      Source_Address_Mode      : in Address_Mode_Field;
+      PAN_ID_Compression       : in PAN_ID_Compression_Field) return Boolean is
+     (Destination_PAN_ID_Presence (Destination_Address_Mode,
+                                   Source_Address_Mode,
+                                   PAN_ID_Compression));
 
 end IEEE802154.MAC;
