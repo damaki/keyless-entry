@@ -1,0 +1,14 @@
+language: c
+
+services:
+  - docker
+
+branches:
+  only:
+    master
+
+git:
+  submodules: true
+
+script:
+  - docker run -v $PWD:/app -w /app damaki/gnat-arm-elf:gpl.2019.spark /bin/sh -c "ci/build_and_prove.sh anchor/anchor.gpr"
